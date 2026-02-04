@@ -3,16 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Models\Category;
+use App\Services\CategoryService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class CategoryManageController extends Controller
 {
+    public function __construct(private CategoryService $categoryService)
+    {
+    }
+
     public function index()
     {
-        $categories = Category::withCount('posts')
-            ->orderBy('name')
-            ->get();
+        $categories = $this->categoryService->listWithPostCount();
 
         return view('dashboard.categories.index', compact('categories'));
     }
@@ -25,11 +27,11 @@ class CategoryManageController extends Controller
     public function store(Request $request)
     {
         $data = $this->validateCategory($request);
-        $data['slug'] = $this->makeUniqueSlug($data['name']);
+        $this->categoryService->create($data);
 
-        Category::create($data);
-
-        return redirect() ->route('dashboard.categories.index')->with('status', 'Category created.');
+        return redirect()
+            ->route('dashboard.categories.index')
+            ->with('status', 'Category created.');
     }
 
     public function edit(Category $category)
@@ -40,9 +42,7 @@ class CategoryManageController extends Controller
     public function update(Request $request, Category $category)
     {
         $data = $this->validateCategory($request);
-        $data['slug'] = $this->makeUniqueSlug($data['name'], $category->id);
-
-        $category->update($data);
+        $this->categoryService->update($category, $data);
 
         return redirect()
             ->route('dashboard.categories.index')
@@ -51,13 +51,11 @@ class CategoryManageController extends Controller
 
     public function destroy(Category $category)
     {
-        if ($category->posts()->exists()) {
+        if (! $this->categoryService->delete($category)) {
             return redirect()
                 ->route('dashboard.categories.index')
                 ->with('status', 'Cannot delete a category with assigned posts.');
         }
-
-        $category->delete();
 
         return redirect()
             ->route('dashboard.categories.index')
@@ -69,24 +67,5 @@ class CategoryManageController extends Controller
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
         ]);
-    }
-
-    private function makeUniqueSlug(string $name, ?int $ignoreId = null): string
-    {
-        $base = Str::slug($name);
-        $slug = $base;
-        $counter = 2;
-
-        while (
-            Category::query()
-                ->where('slug', $slug)
-                ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
-                ->exists()
-        ) {
-            $slug = $base . '-' . $counter;
-            $counter++;
-        }
-
-        return $slug;
     }
 }

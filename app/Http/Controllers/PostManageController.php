@@ -2,27 +2,29 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Category;
 use App\Models\Post;
+use App\Services\CategoryService;
+use App\Services\PostService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 
 class PostManageController extends Controller
 {
+    public function __construct(
+        private PostService $postService,
+        private CategoryService $categoryService
+    ) {
+    }
+
     public function index()
     {
-        $posts = Post::query()
-            ->where('user_id', auth()->id())
-            ->with('category')
-            ->latest()
-            ->get();
+        $posts = $this->postService->listForUser(auth()->id());
 
         return view('dashboard.index', compact('posts'));
     }
 
     public function create()
     {
-        $categories = Category::orderBy('name')->get();
+        $categories = $this->categoryService->listForSelect();
 
         return view('dashboard.posts.create', compact('categories'));
     }
@@ -30,13 +32,8 @@ class PostManageController extends Controller
     public function store(Request $request)
     {
         $data = $this->validatePost($request);
-        if (empty($data['published_at'])) {
-            $data['published_at'] = now();
-        }
-        $data['user_id'] = auth()->id();
-        $data['slug'] = $this->makeUniqueSlug($data['title']);
 
-        Post::create($data);
+        $this->postService->createForUser($data, auth()->id());
 
         return redirect()
             ->route('dashboard.index')
@@ -45,24 +42,20 @@ class PostManageController extends Controller
 
     public function edit(Post $post)
     {
-        $this->authorizeOwner($post);
+        $this->postService->ensureOwner($post, auth()->id());
 
-        $categories = Category::orderBy('name')->get();
+        $categories = $this->categoryService->listForSelect();
 
         return view('dashboard.posts.edit', compact('post', 'categories'));
     }
 
     public function update(Request $request, Post $post)
     {
-        $this->authorizeOwner($post);
+        $this->postService->ensureOwner($post, auth()->id());
 
         $data = $this->validatePost($request);
-        if (empty($data['published_at'])) {
-            $data['published_at'] = now();
-        }
-        $data['slug'] = $this->makeUniqueSlug($data['title'], $post->id);
 
-        $post->update($data);
+        $this->postService->update($post, $data);
 
         return redirect()
             ->route('dashboard.index')
@@ -71,8 +64,8 @@ class PostManageController extends Controller
 
     public function destroy(Post $post)
     {
-        $this->authorizeOwner($post);
-        $post->delete();
+        $this->postService->ensureOwner($post, auth()->id());
+        $this->postService->delete($post);
 
         return redirect()
             ->route('dashboard.index')
@@ -88,31 +81,5 @@ class PostManageController extends Controller
             'body' => ['required', 'string'],
             'published_at' => ['nullable', 'date'],
         ]);
-    }
-
-    private function makeUniqueSlug(string $title, ?int $ignoreId = null): string
-    {
-        $base = Str::slug($title);
-        $slug = $base;
-        $counter = 2;
-
-        while (
-            Post::query()
-                ->where('slug', $slug)
-                ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
-                ->exists()
-        ) {
-            $slug = $base . '-' . $counter;
-            $counter++;
-        }
-
-        return $slug;
-    }
-
-    private function authorizeOwner(Post $post): void
-    {
-        if ($post->user_id !== auth()->id()) {
-            abort(403);
-        }
     }
 }

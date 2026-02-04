@@ -3,23 +3,24 @@
 namespace App\Http\Controllers;
 
 use App\Models\Post;
+use App\Services\PostService;
 
 class PostController extends Controller
 {
+    public function __construct(private PostService $postService)
+    {
+    }
+
     public function index()
     {
-        $posts = Post::query()
-            ->whereNotNull('published_at')
-            ->with(['author', 'category'])
-            ->latest('published_at')
-            ->paginate(6);
+        $posts = $this->postService->listPublishedPaginated(6);
 
         return view('posts.index', compact('posts'));
     }
 
     public function show(Post $post)
     {
-        $post->loadMissing(['author', 'category']);
+        $post = $this->postService->loadForShow($post);
 
         return view('posts.show', compact('post'));
     }
